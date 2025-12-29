@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="id" x-data="appState" x-init="init()">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sistem Manajemen Layanan</title>
+    <link rel="stylesheet" href="assets/styles.css" />
+    <!-- App logic (daftarkan komponen Alpine sebelum Alpine.js dimuat) -->
+    <script src="assets/app.js"></script>
+    <!-- Alpine.js -->
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"
+    ></script>
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+    <!-- SheetJS for Excel export -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- jsPDF + autotable for PDF export -->
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.1/dist/jspdf.plugin.autotable.min.js"></script>
+  </head>
+  <body class="bg-surface">
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-logo">SM</span>
+          <div>
+            <h1 class="brand-title">Sistem Manajemen Layanan</h1>
+            <p class="brand-subtitle" x-show="currentUser">
+              Role: <span x-text="currentUser?.role"></span>
+            </p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button class="btn ghost" x-show="currentUser" @click="logout()">
+            Keluar
+          </button>
+        </div>
+      </header>
+
+      <!-- Halaman Login -->
+      <section class="login-wrapper" x-show="!currentUser" x-transition>
+        <div class="card login-card">
+          <h2>Login</h2>
+          <p class="muted">
+            Contoh akun:
+            <br />Admin → user: <code>admin</code>, pass: <code>admin123</code>
+            <br />User → user: <code>user</code>, pass: <code>user123</code>
+          </p>
+          <form @submit.prevent="handleLogin" class="form-grid">
+            <label>
+              Username
+              <input type="text" x-model="loginForm.username" required />
+            </label>
+            <label>
+              Password
+              <input type="password" x-model="loginForm.password" required />
+            </label>
+            <button type="submit" class="btn primary">Masuk</button>
+            <p class="error full" x-show="loginError" x-text="loginError"></p>
+          </form>
+        </div>
+      </section>
+
+      <!-- Layout -->
+      <div class="layout">
+        <!-- Sidebar -->
+        <aside
+          :class="{ hidden: !currentUser } sidebar"
+          x-transition
+          x-show="currentUser"
+        >
+          <nav>
+            <button
+              class="nav-item"
+              :class="{ active: activePage === 'dashboard' }"
+              @click="activePage = 'dashboard'"
+            >
+              Dashboard
+            </button>
+            <button
+              class="nav-item"
+              :class="{ active: activePage === 'pelanggan' }"
+              @click="activePage = 'pelanggan'"
+            >
+              Data Pelanggan
+            </button>
+            <button
+              class="nav-item"
+              :class="{ active: activePage === 'transaksi' }"
+              @click="activePage = 'transaksi'"
+            >
+              Transaksi
+            </button>
+            <button
+              class="nav-item"
+              :class="{ active: activePage === 'laporan' }"
+              @click="activePage = 'laporan'"
+            >
+              Laporan
+            </button>
+          </nav>
+          <div class="sidebar-footer">
+            <label class="select-label">
+              Jenis Layanan
+              <select x-model="serviceType">
+                <option value="travel">Jasa Travel / Umroh</option>
+                <option value="servis">Servis Laptop</option>
+                <option value="money">Penukaran Uang</option>
+                <option value="it">Jasa IT Support</option>
+              </select>
+            </label>
+          </div>
+        </aside>
+
+        <!-- Main content -->
+        <main class="content">
+          <!-- Dashboard -->
+          <section
+            x-show="currentUser && activePage === 'dashboard'"
+            x-transition
+          >
+            <div class="grid-2">
+              <div class="card">
+                <h2>Ringkasan</h2>
+                <div class="stats-grid">
+                  <div class="stat">
+                    <span class="stat-label">Total Pelanggan</span>
+                    <span class="stat-value" x-text="pelanggan.length"></span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">Total Transaksi</span>
+                    <span class="stat-value" x-text="transaksi.length"></span>
+                  </div>
+                  <div class="stat">
+                    <span class="stat-label">Total Pendapatan</span>
+                    <span
+                      class="stat-value"
+                      x-text="formatCurrency(totalRevenue())"
+                    ></span>
+                  </div>
+                </div>
+              </div>
+              <div class="card">
+                <h2>Statistik Transaksi</h2>
+                <canvas id="chartTransaksi" height="160"></canvas>
+              </div>
+            </div>
+          </section>
+
+          <!-- Data Pelanggan -->
+          <section
+            x-show="currentUser && activePage === 'pelanggan'"
+            x-transition
+          >
+            <div class="card">
+              <div class="card-header">
+                <h2>Data Pelanggan</h2>
+                <button
+                  class="btn primary"
+                  x-show="isAdmin()"
+                  @click="openPelangganForm()"
+                >
+                  Tambah Pelanggan
+                </button>
+              </div>
+              <div class="toolbar">
+                <input
+                  type="search"
+                  placeholder="Cari nama / kontak..."
+                  x-model="pelangganSearch"
+                />
+              </div>
+              <div class="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Nama</th>
+                      <th>Kontak</th>
+                      <th>Jenis Layanan</th>
+                      <th>Catatan</th>
+                      <th>Aksi</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template
+                      x-for="cust in filteredPelanggan()"
+                      :key="cust.id"
+                    >
+                      <tr>
+                        <td x-text="cust.nama"></td>
+                        <td x-text="cust.kontak"></td>
+                        <td x-text="cust.jenisLayanan"></td>
+                        <td x-text="cust.catatan"></td>
+                        <td>
+                          <button
+                            class="link"
+                            x-show="isAdmin()"
+                            @click="openPelangganForm(cust)"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            class="link danger"
+                            x-show="isAdmin()"
+                            @click="deletePelanggan(cust.id)"
+                          >
+                            Hapus
+                          </button>
+                        </td>
+                      </tr>
+                    </template>
+                    <tr x-show="filteredPelanggan().length === 0">
+                      <td colspan="5" class="muted">
+                        Belum ada data pelanggan.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Modal Pelanggan -->
+            <div class="modal-backdrop" x-show="pelangganModal.open">
+              <div class="modal" @click.outside="closePelangganForm()">
+                <h3
+                  x-text="pelangganModal.isEdit ? 'Edit Pelanggan' : 'Tambah Pelanggan'"
+                ></h3>
+                <form @submit.prevent="savePelanggan" class="form-grid">
+                  <label>
+                    Nama
+                    <input
+                      type="text"
+                      x-model="pelangganModal.form.nama"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Kontak
+                    <input
+                      type="text"
+                      x-model="pelangganModal.form.kontak"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Jenis Layanan
+                    <select x-model="pelangganModal.form.jenisLayanan">
+                      <option value="travel">Travel / Umroh</option>
+                      <option value="servis">Servis Laptop</option>
+                      <option value="money">Penukaran Uang</option>
+                      <option value="it">IT Support</option>
+                    </select>
+                  </label>
+                  <label class="full">
+                    Catatan
+                    <textarea
+                      rows="3"
+                      x-model="pelangganModal.form.catatan"
+                    ></textarea>
+                  </label>
+                  <div class="form-actions">
+                    <button
+                      type="button"
+                      class="btn ghost"
+                      @click="closePelangganForm()"
+                    >
+                      Batal
+                    </button>
+                    <button type="submit" class="btn primary">
+                      <span
+                        x-text="pelangganModal.isEdit ? 'Simpan Perubahan' : 'Simpan'"
+                      ></span>
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </section>
+
+          <!-- Transaksi -->
+          <section
+            x-show="currentUser && activePage === 'transaksi'"
+            x-transition
+          >
+            <div class="grid-2">
+              <div class="card">
+                <h2>Input Transaksi</h2>
+                <form @submit.prevent="saveTransaksi" class="form-grid">
+                  <label>
+                    Pelanggan
+                    <select x-model="transaksiForm.pelangganId" required>
+                      <option value="">-- Pilih Pelanggan --</option>
+                      <template x-for="cust in pelanggan" :key="cust.id">
+                        <option :value="cust.id" x-text="cust.nama"></option>
+                      </template>
+                    </select>
+                  </label>
+                  <label>
+                    Tanggal
+                    <input
+                      type="date"
+                      x-model="transaksiForm.tanggal"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Deskripsi
+                    <input
+                      type="text"
+                      x-model="transaksiForm.deskripsi"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Nominal
+                    <input
+                      type="number"
+                      min="0"
+                      step="1000"
+                      x-model.number="transaksiForm.nominal"
+                      required
+                    />
+                  </label>
+                  <label>
+                    Status
+                    <select x-model="transaksiForm.status">
+                      <option value="pending">Pending</option>
+                      <option value="selesai">Selesai</option>
+                      <option value="batal">Batal</option>
+                    </select>
+                  </label>
+                  <button
+                    type="submit"
+                    class="btn primary"
+                    :disabled="!isAdmin()"
+                  >
+                    Simpan Transaksi
+                  </button>
+                  <p class="muted" x-show="!isAdmin()">
+                    Hanya admin yang dapat menambah transaksi. Anda dapat
+                    melihat riwayat di sebelah kanan.
+                  </p>
+                </form>
+              </div>
+              <div class="card">
+                <h2>Riwayat Transaksi</h2>
+                <div class="toolbar">
+                  <input
+                    type="search"
+                    placeholder="Cari pelanggan / deskripsi..."
+                    x-model="transaksiSearch"
+                  />
+                  <select x-model="transaksiFilterStatus">
+                    <option value="">Semua Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="selesai">Selesai</option>
+                    <option value="batal">Batal</option>
+                  </select>
+                </div>
+                <div class="table-wrapper">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Tanggal</th>
+                        <th>Pelanggan</th>
+                        <th>Deskripsi</th>
+                        <th>Nominal</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template
+                        x-for="trx in filteredTransaksi()"
+                        :key="trx.id"
+                      >
+                        <tr>
+                          <td x-text="formatDate(trx.tanggal)"></td>
+                          <td x-text="getPelangganName(trx.pelangganId)"></td>
+                          <td x-text="trx.deskripsi"></td>
+                          <td x-text="formatCurrency(trx.nominal)"></td>
+                          <td>
+                            <span
+                              class="badge"
+                              :class="'badge-' + trx.status"
+                              x-text="trx.status"
+                            ></span>
+                          </td>
+                        </tr>
+                      </template>
+                      <tr x-show="filteredTransaksi().length === 0">
+                        <td colspan="5" class="muted">Belum ada transaksi.</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- Laporan -->
+          <section
+            x-show="currentUser && activePage === 'laporan'"
+            x-transition
+          >
+            <div class="card">
+              <div class="card-header">
+                <h2>Laporan</h2>
+              </div>
+              <div class="toolbar">
+                <label>
+                  Dari
+                  <input type="date" x-model="laporanRange.from" />
+                </label>
+                <label>
+                  Sampai
+                  <input type="date" x-model="laporanRange.to" />
+                </label>
+                <button class="btn ghost" @click="resetLaporanRange()">
+                  Reset
+                </button>
+                <div class="flex-spacer"></div>
+                <button class="btn" @click="exportExcel()">Export Excel</button>
+                <button class="btn" @click="exportPDF()">Export PDF</button>
+              </div>
+              <div class="table-wrapper">
+                <table id="laporanTable">
+                  <thead>
+                    <tr>
+                      <th>Tanggal</th>
+                      <th>Pelanggan</th>
+                      <th>Deskripsi</th>
+                      <th>Nominal</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <template x-for="trx in laporanTransaksi()" :key="trx.id">
+                      <tr>
+                        <td x-text="formatDate(trx.tanggal)"></td>
+                        <td x-text="getPelangganName(trx.pelangganId)"></td>
+                        <td x-text="trx.deskripsi"></td>
+                        <td x-text="formatCurrency(trx.nominal)"></td>
+                        <td x-text="trx.status"></td>
+                      </tr>
+                    </template>
+                    <tr x-show="laporanTransaksi().length === 0">
+                      <td colspan="5" class="muted">
+                        Tidak ada data pada rentang tanggal ini.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+    </div>
+  </body>
+</html>
